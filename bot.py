@@ -8,8 +8,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 # تنظیمات اولیه (توکن ربات و آیدی کانال مقصد را اینجا وارد کنید)
-BOT_TOKEN = "TOKEN_BOT_خود_را_اینجا_قرار_دهید"
-CHANNEL_ID = "@آیدی_کانال_شما_یا_شناسه_عددی"
+BOT_TOKEN = "8971917249:AAHdb_9RzkbkbZlPelsbjlb2CSXkRzhESUM"
+CHANNEL_ID = "-1004331075101"
 
 # پیکربندی لاگ‌ها
 logging.basicConfig(level=logging.INFO)

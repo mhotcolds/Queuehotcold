@@ -8,8 +8,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 # تنظیمات اولیه (توکن ربات و آیدی کانال مقصد را اینجا وارد کنید)
-BOT_TOKEN = "8971917249:AAHdb_9RzkbkbZlPelsbjlb2CSXkRzhESUM"
-CHANNEL_ID = "-1004331075101"
+BOT_TOKEN = "TOKEN_BOT_خود_را_اینجا_قرار_دهید"
+CHANNEL_ID = "@آیدی_کانال_شما_یا_شناسه_عددی"
 
 # پیکربندی لاگ‌ها
 logging.basicConfig(level=logging.INFO)
@@ -46,7 +46,7 @@ def get_control_keyboard():
 async def cmd_start(message: types.Message):
     welcome_text = (
         f"🤖 **به ربات مدیریت صف ارسال خوش آمدید!**\n\n"
-        f"• عکس یا ویدیوهای خود را بفرستید تا به صف اضافه شوند.\n"
+        f"• عکس، ویدیو یا فایل‌های خود (مثل wmv) را بفرستید تا به صف اضافه شوند.\n"
         f"• پیشوند فعلی: `{current_prefix if current_prefix else 'تنظیم نشده'}`\n"
         f"• فاصله زمانی فعلی: `{interval_seconds} ثانیه`\n"
         f"• تعداد فایل‌های موجود در صف: `{media_queue.qsize()}`"
@@ -67,13 +67,12 @@ async def handle_photo(message: types.Message):
     })
     await message.reply(f"✅ عکس به صف اضافه شد. (تعداد در صف: {media_queue.qsize()})")
 
-# دریافت ویدیو و افزودن به صف
+# دریافت ویدیو یا اسناد (شامل فرمت‌های ویدیویی مثل wmv که به عنوان فایل ارسال می‌شوند)
 @dp.message(F.video | F.document)
 async def handle_media(message: types.Message):
     file_id = None
     media_type = "video"
     
-    # تشخیص اینکه فایل ویدیو است یا سند (مثل فرمت wmv)
     if message.video:
         file_id = message.video.file_id
         media_type = "video"
@@ -95,7 +94,6 @@ async def handle_media(message: types.Message):
     })
     
     await message.reply(f"✅ فایل/ویدیو به صف اضافه شد. (تعداد در صف: {media_queue.qsize()})")
-
 
 # مدیریت کلیک دکمه‌های شیشه‌ای (Inline)
 @dp.callback_query(F.data.in_(["set_prefix", "set_interval", "queue_status", "clear_queue"]))
@@ -166,10 +164,13 @@ async def queue_worker():
             else:
                 final_caption = original_caption
 
+            # ارسال بر اساس نوع فایل ذخیره شده در صف
             if item["type"] == "photo":
                 await bot.send_photo(chat_id=CHANNEL_ID, photo=item["file_id"], caption=final_caption)
             elif item["type"] == "video":
                 await bot.send_video(chat_id=CHANNEL_ID, video=item["file_id"], caption=final_caption)
+            elif item["type"] == "document":
+                await bot.send_document(chat_id=CHANNEL_ID, document=item["file_id"], caption=final_caption)
 
             try:
                 await bot.delete_message(chat_id=item["chat_id"], message_id=item["message_id"])

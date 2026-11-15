@@ -7,27 +7,26 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-# تنظیمات اولیه (توکن ربات و آیدی کانال مقصد را اینجا وارد کنید)
-BOT_TOKEN = "TOKEN_BOT_خود_را_اینجا_قرار_دهید"
-CHANNEL_ID = "@آیدی_کانال_شما_یا_شناسه_عددی"
+# ==================== تنظیمات ====================
+BOT_TOKEN = "8971917249:AAHdb_9RzkbkbZlPelsbjlb2CSXkRzhESUM"
+CHANNEL_ID = "-1004331075101"
 
-# پیکربندی لاگ‌ها
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# متغیرهای سراسری برای صف و تنظیمات
+# متغیرهای سراسری
 media_queue = asyncio.Queue()
 current_prefix = ""
-interval_seconds = 60  # پیش‌فرض: ۶۰ ثانیه
+interval_seconds = 60
 
-# حالت‌های FSM برای دریافت پیشوند یا زمان از کاربر
+# ==================== FSM ====================
 class AdminStates(StatesGroup):
     waiting_for_prefix = State()
     waiting_for_interval = State()
 
-# دکمه‌های پنل کنترل ربات
+# ==================== کیبورد ====================
 def get_control_keyboard():
     keyboard = [
         [
@@ -41,81 +40,71 @@ def get_control_keyboard():
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-# دستور شروع و نمایش پنل
+# ==================== دستورات ====================
 @dp.message(Command("start", "panel"))
 async def cmd_start(message: types.Message):
     welcome_text = (
         f"🤖 **به ربات مدیریت صف ارسال خوش آمدید!**\n\n"
-        f"• هر نوع فایل، عکس یا ویدیویی بفرستید تا به صف اضافه شود.\n"
+        f"• هر نوع فایل، عکس، ویدیو یا سند (مثل wmv) را بفرستید تا به صف اضافه شود.\n"
         f"• پیشوند فعلی: `{current_prefix if current_prefix else 'تنظیم نشده'}`\n"
         f"• فاصله زمانی فعلی: `{interval_seconds} ثانیه`\n"
         f"• تعداد فایل‌های موجود در صف: `{media_queue.qsize()}`"
     )
     await message.answer(welcome_text, reply_markup=get_control_keyboard(), parse_mode="Markdown")
 
-# ۱. دریافت عکس
-@dp.message(F.photo)
-async def handle_photo(message: types.Message):
-    file_id = message.photo[-1].file_id
-    caption = message.caption or ""
-    await media_queue.put({
-        "type": "photo", 
-        "file_id": file_id, 
-        "caption": caption,
-        "chat_id": message.chat.id,
-        "message_id": message.message_id
-    })
-    await message.reply(f"✅ عکس به صف اضافه شد. (تعداد در صف: {media_queue.qsize()})")
-
-# ۲. دریافت ویدیوهای استاندارد
-@dp.message(F.video)
-async def handle_video(message: types.Message):
-    file_id = message.video.file_id
-    caption = message.caption or ""
-    await media_queue.put({
-        "type": "video", 
-        "file_id": file_id, 
-        "caption": caption,
-        "chat_id": message.chat.id,
-        "message_id": message.message_id
-    })
-    await message.reply(f"✅ ویدیو به صف اضافه شد. (تعداد در صف: {media_queue.qsize()})")
-
-# ۳. دریافت تمام فایل‌ها، اسناد، فرمت‌های wmv، عکس‌های متفرقه و...
-@dp.message(F.document | F.animation | F.audio | F.voice | F.video_note)
-async def handle_all_documents(message: types.Message):
+# ==================== هندلر اصلی دریافت همه فایل‌ها ====================
+@dp.message(F.content_type.in_({
+    "photo", "video", "document", "animation", "audio", "voice", "video_note"
+}))
+async def handle_all_media(message: types.Message):
     file_id = None
-    
-    if message.document:
+    media_type = "document"  # پیش‌فرض
+
+    # تشخیص نوع و گرفتن file_id
+    if message.photo:
+        file_id = message.photo[-1].file_id
+        media_type = "photo"
+    elif message.video:
+        file_id = message.video.file_id
+        media_type = "video"
+    elif message.document:
         file_id = message.document.file_id
+        media_type = "document"
     elif message.animation:
         file_id = message.animation.file_id
+        media_type = "document"
     elif message.audio:
         file_id = message.audio.file_id
+        media_type = "document"
     elif message.voice:
         file_id = message.voice.file_id
+        media_type = "document"
     elif message.video_note:
         file_id = message.video_note.file_id
-        
+        media_type = "document"
+
     if not file_id:
+        await message.reply("❌ نتوانستم فایل را شناسایی کنم.")
         return
 
     caption = message.caption or ""
-    
+
+    # اضافه کردن به صف
     await media_queue.put({
-        "type": "document", 
-        "file_id": file_id, 
+        "type": media_type,
+        "file_id": file_id,
         "caption": caption,
         "chat_id": message.chat.id,
         "message_id": message.message_id
     })
-    
-    await message.reply(f"✅ فایل با موفقیت به صف اضافه شد. (تعداد در صف: {media_queue.qsize()})")
 
-# مدیریت کلیک دکمه‌های شیشه‌ای (Inline)
+    await message.reply(f"✅ فایل به صف اضافه شد.\nتعداد فعلی در صف: `{media_queue.qsize()}`", parse_mode="Markdown")
+
+# ==================== مدیریت دکمه‌ها ====================
 @dp.callback_query(F.data.in_(["set_prefix", "set_interval", "queue_status", "clear_queue"]))
 async def handle_callbacks(callback: types.CallbackQuery, state: FSMContext):
-    global current_prefix, interval_seconds, media_queue
+    global current_prefix, interval_seconds
+
     action = callback.data
 
     if action == "set_prefix":
@@ -141,41 +130,51 @@ async def handle_callbacks(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.answer("🗑️ صف ارسال کاملاً پاک شد.", reply_markup=get_control_keyboard())
         await callback.answer()
 
+# ==================== ذخیره پیشوند ====================
 @dp.message(AdminStates.waiting_for_prefix)
 async def save_prefix(message: types.Message, state: FSMContext):
     global current_prefix
     current_prefix = message.text
     await state.clear()
-    await message.answer(f"✅ پیشوند جدید ثبت شد:\n`{current_prefix}`", reply_markup=get_control_keyboard(), parse_mode="Markdown")
+    await message.answer(
+        f"✅ پیشوند جدید ثبت شد:\n`{current_prefix}`",
+        reply_markup=get_control_keyboard(),
+        parse_mode="Markdown"
+    )
 
+# ==================== ذخیره فاصله زمانی ====================
 @dp.message(AdminStates.waiting_for_interval)
 async def save_interval(message: types.Message, state: FSMContext):
     global interval_seconds
     try:
         val = int(message.text)
         if val < 10:
-            await message.answer("❌ حداقل زمان ۱۰ ثانیه است:")
+            await message.answer("❌ حداقل زمان مجاز ۱۰ ثانیه است.")
             return
         interval_seconds = val
         await state.clear()
-        await message.answer(f"⏱️ فاصله زمانی تنظیم شد روی: `{interval_seconds} ثانیه`", reply_markup=get_control_keyboard(), parse_mode="Markdown")
+        await message.answer(
+            f"⏱️ فاصله زمانی تنظیم شد روی: `{interval_seconds} ثانیه`",
+            reply_markup=get_control_keyboard(),
+            parse_mode="Markdown"
+        )
     except ValueError:
-        await message.answer("❌ لطفاً فقط یک عدد صحیح وارد کنید:")
+        await message.answer("❌ لطفاً فقط یک عدد صحیح (ثانیه) وارد کنید.")
 
-# تسک پس‌زمینه برای ارسال خودکار فایل‌ها به کانال و حذف از چت ربات
+# ==================== Worker پس‌زمینه ====================
 async def queue_worker():
     global interval_seconds, current_prefix
     while True:
         try:
             item = await media_queue.get()
-            
-            original_caption = item["caption"]
+
+            original_caption = item.get("caption", "")
             if current_prefix:
                 final_caption = f"{current_prefix}\n\n{original_caption}" if original_caption else current_prefix
             else:
                 final_caption = original_caption
 
-            # ارسال به کانال بسته به نوع فایل
+            # ارسال به کانال
             if item["type"] == "photo":
                 await bot.send_photo(chat_id=CHANNEL_ID, photo=item["file_id"], caption=final_caption)
             elif item["type"] == "video":
@@ -183,21 +182,23 @@ async def queue_worker():
             else:
                 await bot.send_document(chat_id=CHANNEL_ID, document=item["file_id"], caption=final_caption)
 
+            # حذف پیام اصلی کاربر
             try:
                 await bot.delete_message(chat_id=item["chat_id"], message_id=item["message_id"])
             except Exception as del_err:
-                logging.warning(f"امکان حذف پیام وجود نداشت: {del_err}")
+                logging.warning(f"نتوانست پیام را حذف کند: {del_err}")
 
             media_queue.task_done()
             await asyncio.sleep(interval_seconds)
 
         except Exception as e:
-            logging.error(f"خطا در پردازش صف ارسال: {e}")
+            logging.error(f"خطا در پردازش صف: {e}")
             await asyncio.sleep(5)
 
+# ==================== اجرای ربات ====================
 async def main():
     asyncio.create_task(queue_worker())
-    logging.info("Bot is starting with absolute file support...")
+    logging.info("ربات در حال راه‌اندازی...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

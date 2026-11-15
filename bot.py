@@ -8,8 +8,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 # تنظیمات اولیه (توکن ربات و آیدی کانال مقصد را اینجا وارد کنید)
-BOT_TOKEN = "8971917249:AAHdb_9RzkbkbZlPelsbjlb2CSXkRzhESUM"
-CHANNEL_ID = "-1004331075101"
+BOT_TOKEN = "TOKEN_BOT_خود_را_اینجا_قرار_دهید"
+CHANNEL_ID = "@آیدی_کانال_شما_یا_شناسه_عددی"
 
 # پیکربندی لاگ‌ها
 logging.basicConfig(level=logging.INFO)
@@ -46,42 +46,71 @@ def get_control_keyboard():
 async def cmd_start(message: types.Message):
     welcome_text = (
         f"🤖 **به ربات مدیریت صف ارسال خوش آمدید!**\n\n"
-        f"• فایل یا ویدیوی خود را بفرستید تا به صف اضافه شود.\n"
+        f"• هر نوع فایل، عکس یا ویدیویی بفرستید تا به صف اضافه شود.\n"
         f"• پیشوند فعلی: `{current_prefix if current_prefix else 'تنظیم نشده'}`\n"
         f"• فاصله زمانی فعلی: `{interval_seconds} ثانیه`\n"
         f"• تعداد فایل‌های موجود در صف: `{media_queue.qsize()}`"
     )
     await message.answer(welcome_text, reply_markup=get_control_keyboard(), parse_mode="Markdown")
 
-# دریافت عکس
+# ۱. دریافت عکس
 @dp.message(F.photo)
 async def handle_photo(message: types.Message):
     file_id = message.photo[-1].file_id
     caption = message.caption or ""
-    await media_queue.put({"type": "photo", "file_id": file_id, "caption": caption, "chat_id": message.chat.id, "message_id": message.message_id})
+    await media_queue.put({
+        "type": "photo", 
+        "file_id": file_id, 
+        "caption": caption,
+        "chat_id": message.chat.id,
+        "message_id": message.message_id
+    })
     await message.reply(f"✅ عکس به صف اضافه شد. (تعداد در صف: {media_queue.qsize()})")
 
-# دریافت ویدیو
+# ۲. دریافت ویدیوهای استاندارد
 @dp.message(F.video)
 async def handle_video(message: types.Message):
     file_id = message.video.file_id
     caption = message.caption or ""
-    await media_queue.put({"type": "video", "file_id": file_id, "caption": caption, "chat_id": message.chat.id, "message_id": message.message_id})
+    await media_queue.put({
+        "type": "video", 
+        "file_id": file_id, 
+        "caption": caption,
+        "chat_id": message.chat.id,
+        "message_id": message.message_id
+    })
     await message.reply(f"✅ ویدیو به صف اضافه شد. (تعداد در صف: {media_queue.qsize()})")
 
-# دریافت اسناد (فایل‌ها و wmv)
-@dp.message(F.document)
-async def handle_document(message: types.Message):
-    file_id = message.document.file_id
-    caption = message.caption or ""
-    await media_queue.put({"type": "document", "file_id": file_id, "caption": caption, "chat_id": message.chat.id, "message_id": message.message_id})
-    await message.reply(f"✅ فایل/سند به صف اضافه شد. (تعداد در صف: {media_queue.qsize()})")
+# ۳. دریافت تمام فایل‌ها، اسناد، فرمت‌های wmv، عکس‌های متفرقه و...
+@dp.message(F.document | F.animation | F.audio | F.voice | F.video_note)
+async def handle_all_documents(message: types.Message):
+    file_id = None
+    
+    if message.document:
+        file_id = message.document.file_id
+    elif message.animation:
+        file_id = message.animation.file_id
+    elif message.audio:
+        file_id = message.audio.file_id
+    elif message.voice:
+        file_id = message.voice.file_id
+    elif message.video_note:
+        file_id = message.video_note.file_id
+        
+    if not file_id:
+        return
 
-# 🔍 تله عیب‌یابی: هر پیام دیگری که بالا هندل نشده باشد را اینجا می‌گیریم تا ببینیم چیست
-@dp.message()
-async def catch_all(message: types.Message):
-    logging.info(debugging_info := f"DEBUG: Unhandled message received! content_type={message.content_type}, text={message.text}")
-    await message.reply(f"⚠️ پیام دریافت شد اما نوع آن شناخته نشد. نوع فایل: {message.content_type}")
+    caption = message.caption or ""
+    
+    await media_queue.put({
+        "type": "document", 
+        "file_id": file_id, 
+        "caption": caption,
+        "chat_id": message.chat.id,
+        "message_id": message.message_id
+    })
+    
+    await message.reply(f"✅ فایل با موفقیت به صف اضافه شد. (تعداد در صف: {media_queue.qsize()})")
 
 # مدیریت کلیک دکمه‌های شیشه‌ای (Inline)
 @dp.callback_query(F.data.in_(["set_prefix", "set_interval", "queue_status", "clear_queue"]))
@@ -133,19 +162,25 @@ async def save_interval(message: types.Message, state: FSMContext):
     except ValueError:
         await message.answer("❌ لطفاً فقط یک عدد صحیح وارد کنید:")
 
+# تسک پس‌زمینه برای ارسال خودکار فایل‌ها به کانال و حذف از چت ربات
 async def queue_worker():
     global interval_seconds, current_prefix
     while True:
         try:
             item = await media_queue.get()
+            
             original_caption = item["caption"]
-            final_caption = f"{current_prefix}\n\n{original_caption}" if current_prefix else original_caption
+            if current_prefix:
+                final_caption = f"{current_prefix}\n\n{original_caption}" if original_caption else current_prefix
+            else:
+                final_caption = original_caption
 
+            # ارسال به کانال بسته به نوع فایل
             if item["type"] == "photo":
                 await bot.send_photo(chat_id=CHANNEL_ID, photo=item["file_id"], caption=final_caption)
             elif item["type"] == "video":
                 await bot.send_video(chat_id=CHANNEL_ID, video=item["file_id"], caption=final_caption)
-            elif item["type"] == "document":
+            else:
                 await bot.send_document(chat_id=CHANNEL_ID, document=item["file_id"], caption=final_caption)
 
             try:
@@ -155,13 +190,14 @@ async def queue_worker():
 
             media_queue.task_done()
             await asyncio.sleep(interval_seconds)
+
         except Exception as e:
             logging.error(f"خطا در پردازش صف ارسال: {e}")
             await asyncio.sleep(5)
 
 async def main():
     asyncio.create_task(queue_worker())
-    logging.info("Bot is starting with debug handler...")
+    logging.info("Bot is starting with absolute file support...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

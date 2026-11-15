@@ -68,32 +68,33 @@ async def handle_photo(message: types.Message):
     await message.reply(f"✅ عکس به صف اضافه شد. (تعداد در صف: {media_queue.qsize()})")
 
 # دریافت ویدیو یا اسناد (شامل فرمت‌های ویدیویی مثل wmv که به عنوان فایل ارسال می‌شوند)
-@dp.message(F.video | F.document)
-async def handle_media(message: types.Message):
-    file_id = None
-    media_type = "video"
-    
-    if message.video:
-        file_id = message.video.file_id
-        media_type = "video"
-    elif message.document:
-        file_id = message.document.file_id
-        media_type = "document"
-    
-    if not file_id:
-        return
-
+# دریافت ویدیوی استاندارد
+@dp.message(F.video)
+async def handle_video(message: types.Message):
+    file_id = message.video.file_id
     caption = message.caption or ""
-    
     await media_queue.put({
-        "type": media_type, 
+        "type": "video", 
         "file_id": file_id, 
         "caption": caption,
         "chat_id": message.chat.id,
         "message_id": message.message_id
     })
-    
-    await message.reply(f"✅ فایل/ویدیو به صف اضافه شد. (تعداد در صف: {media_queue.qsize()})")
+    await message.reply(f"✅ ویدیو به صف اضافه شد. (تعداد در صف: {media_queue.qsize()})")
+
+# دریافت فایل یا سند (شامل فرمت‌هایی مثل wmv که به عنوان فایل ارسال می‌شوند)
+@dp.message(F.document)
+async def handle_document(message: types.Message):
+    file_id = message.document.file_id
+    caption = message.caption or ""
+    await media_queue.put({
+        "type": "document", 
+        "file_id": file_id, 
+        "caption": caption,
+        "chat_id": message.chat.id,
+        "message_id": message.message_id
+    })
+    await message.reply(f"✅ فایل (سند/wmv) به صف اضافه شد. (تعداد در صف: {media_queue.qsize()})")
 
 # مدیریت کلیک دکمه‌های شیشه‌ای (Inline)
 @dp.callback_query(F.data.in_(["set_prefix", "set_interval", "queue_status", "clear_queue"]))

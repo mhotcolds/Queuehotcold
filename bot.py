@@ -5,7 +5,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 
 # ==================== تنظیمات ====================
 BOT_TOKEN ="8971917249:AAHdb_9RzkbkbZlPelsbjlb2CSXkRzhESUM"
@@ -40,7 +40,18 @@ def get_control_keyboard():
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-@dp.message(Command("start", "panel"))
+# ==================== تنظیم منوی دستورات ====================
+async def set_bot_commands():
+    commands = [
+        BotCommand(command="start", description="شروع ربات"),
+        BotCommand(command="panel", description="پنل کنترل"),
+        BotCommand(command="setting", description="تنظیمات ربات"),
+        BotCommand(command="status", description="وضعیت صف"),
+        BotCommand(command="help", description="راهنما"),
+    ]
+    await bot.set_my_commands(commands)
+
+@dp.message(Command("start", "panel", "setting"))
 async def cmd_start(message: types.Message):
     welcome_text = (
         f"🤖 **به ربات مدیریت صف ارسال خوش آمدید!**\n\n"
@@ -51,7 +62,26 @@ async def cmd_start(message: types.Message):
     )
     await message.answer(welcome_text, reply_markup=get_control_keyboard(), parse_mode="Markdown")
 
-# ==================== هندلر اصلی + دیباگ ====================
+@dp.message(Command("status"))
+async def cmd_status(message: types.Message):
+    await message.answer(f"📊 تعداد فایل‌های موجود در صف: `{media_queue.qsize()}`", parse_mode="Markdown")
+
+@dp.message(Command("help"))
+async def cmd_help(message: types.Message):
+    help_text = (
+        "📖 **راهنمای ربات:**\n\n"
+        "• هر فایل، عکس یا ویدیویی بفرستید تا به صف اضافه شود.\n"
+        "• از دکمه‌های پنل برای تنظیم پیشوند و فاصله زمانی استفاده کنید.\n"
+        "• دستورات موجود:\n"
+        "`/start` - شروع و نمایش پنل\n"
+        "`/panel` - پنل کنترل\n"
+        "`/setting` - تنظیمات\n"
+        "`/status` - وضعیت صف\n"
+        "`/help` - راهنما"
+    )
+    await message.answer(help_text, parse_mode="Markdown")
+
+# ==================== هندلر اصلی فایل‌ها ====================
 @dp.message()
 async def debug_and_handle_media(message: types.Message):
     logging.info("=" * 50)
@@ -202,6 +232,7 @@ async def queue_worker():
             await asyncio.sleep(5)
 
 async def main():
+    await set_bot_commands()  # تنظیم منوی دستورات
     asyncio.create_task(queue_worker())
     logging.info("ربات با حالت دیباگ شروع شد...")
     await dp.start_polling(bot)

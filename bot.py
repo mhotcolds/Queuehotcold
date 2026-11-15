@@ -8,25 +8,25 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 # ==================== تنظیمات ====================
-BOT_TOKEN = "8971917249:AAHdb_9RzkbkbZlPelsbjlb2CSXkRzhESUM"
+BOT_TOKEN ="8971917249:AAHdb_9RzkbkbZlPelsbjlb2CSXkRzhESUM"
 CHANNEL_ID = "-1004331075101"
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# متغیرهای سراسری
 media_queue = asyncio.Queue()
 current_prefix = ""
 interval_seconds = 60
 
-# ==================== FSM ====================
 class AdminStates(StatesGroup):
     waiting_for_prefix = State()
     waiting_for_interval = State()
 
-# ==================== کیبورد ====================
 def get_control_keyboard():
     keyboard = [
         [
@@ -40,7 +40,6 @@ def get_control_keyboard():
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-# ==================== دستورات ====================
 @dp.message(Command("start", "panel"))
 async def cmd_start(message: types.Message):
     welcome_text = (
@@ -52,15 +51,35 @@ async def cmd_start(message: types.Message):
     )
     await message.answer(welcome_text, reply_markup=get_control_keyboard(), parse_mode="Markdown")
 
-# ==================== هندلر اصلی دریافت همه فایل‌ها ====================
-@dp.message(F.content_type.in_({
-    "photo", "video", "document", "animation", "audio", "voice", "video_note"
-}))
-async def handle_all_media(message: types.Message):
-    file_id = None
-    media_type = "document"  # پیش‌فرض
+# ==================== هندلر دیباگ + دریافت همه فایل‌ها ====================
+@dp.message()
+async def debug_and_handle_media(message: types.Message):
+    # --- بخش دیباگ (خیلی مهم) ---
+    logging.info("=" * 50)
+    logging.info(f"پیام جدید دریافت شد از کاربر: {message.from_user.id}")
+    logging.info(f"content_type = {message.content_type}")
+    logging.info(f"دارای photo? {bool(message.photo)}")
+    logging.info(f"دارای video? {bool(message.video)}")
+    logging.info(f"دارای document? {bool(message.document)}")
+    logging.info(f"دارای animation? {bool(message.animation)}")
+    logging.info(f"دارای audio? {bool(message.audio)}")
+    logging.info(f"دارای voice? {bool(message.voice)}")
+    logging.info(f"دارای video_note? {bool(message.video_note)}")
+    logging.info(f"کپشن: {message.caption}")
+    if message.document:
+        logging.info(f"نام فایل: {message.document.file_name}")
+        logging.info(f"mime_type: {message.document.mime_type}")
+        logging.info(f"file_size: {message.document.file_size}")
+    logging.info("=" * 50)
 
-    # تشخیص نوع و گرفتن file_id
+    # --- اگر پیام متنی ساده بود، رد شو ---
+    if message.content_type == "text":
+        return
+
+    # --- استخراج file_id ---
+    file_id = None
+    media_type = "document"
+
     if message.photo:
         file_id = message.photo[-1].file_id
         media_type = "photo"
@@ -84,12 +103,11 @@ async def handle_all_media(message: types.Message):
         media_type = "document"
 
     if not file_id:
-        await message.reply("❌ نتوانستم فایل را شناسایی کنم.")
+        await message.reply("❌ نتوانستم فایل را شناسایی کنم. لاگ را چک کن.")
         return
 
     caption = message.caption or ""
 
-    # اضافه کردن به صف
     await media_queue.put({
         "type": media_type,
         "file_id": file_id,
@@ -98,9 +116,14 @@ async def handle_all_media(message: types.Message):
         "message_id": message.message_id
     })
 
-    await message.reply(f"✅ فایل به صف اضافه شد.\nتعداد فعلی در صف: `{media_queue.qsize()}`", parse_mode="Markdown")
+    await message.reply(
+        f"✅ فایل به صف اضافه شد.\n"
+        f"نوع: `{media_type}`\n"
+        f"تعداد در صف: `{media_queue.qsize()}`",
+        parse_mode="Markdown"
+    )
 
-# ==================== مدیریت دکمه‌ها ====================
+# ==================== دکمه‌ها ====================
 @dp.callback_query(F.data.in_(["set_prefix", "set_interval", "queue_status", "clear_queue"]))
 async def handle_callbacks(callback: types.CallbackQuery, state: FSMContext):
     global current_prefix, interval_seconds
@@ -130,19 +153,13 @@ async def handle_callbacks(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.answer("🗑️ صف ارسال کاملاً پاک شد.", reply_markup=get_control_keyboard())
         await callback.answer()
 
-# ==================== ذخیره پیشوند ====================
 @dp.message(AdminStates.waiting_for_prefix)
 async def save_prefix(message: types.Message, state: FSMContext):
     global current_prefix
     current_prefix = message.text
     await state.clear()
-    await message.answer(
-        f"✅ پیشوند جدید ثبت شد:\n`{current_prefix}`",
-        reply_markup=get_control_keyboard(),
-        parse_mode="Markdown"
-    )
+    await message.answer(f"✅ پیشوند جدید ثبت شد:\n`{current_prefix}`", reply_markup=get_control_keyboard(), parse_mode="Markdown")
 
-# ==================== ذخیره فاصله زمانی ====================
 @dp.message(AdminStates.waiting_for_interval)
 async def save_interval(message: types.Message, state: FSMContext):
     global interval_seconds
@@ -153,15 +170,11 @@ async def save_interval(message: types.Message, state: FSMContext):
             return
         interval_seconds = val
         await state.clear()
-        await message.answer(
-            f"⏱️ فاصله زمانی تنظیم شد روی: `{interval_seconds} ثانیه`",
-            reply_markup=get_control_keyboard(),
-            parse_mode="Markdown"
-        )
+        await message.answer(f"⏱️ فاصله زمانی تنظیم شد روی: `{interval_seconds} ثانیه`", reply_markup=get_control_keyboard(), parse_mode="Markdown")
     except ValueError:
-        await message.answer("❌ لطفاً فقط یک عدد صحیح (ثانیه) وارد کنید.")
+        await message.answer("❌ لطفاً فقط یک عدد صحیح وارد کنید.")
 
-# ==================== Worker پس‌زمینه ====================
+# ==================== Worker ====================
 async def queue_worker():
     global interval_seconds, current_prefix
     while True:
@@ -174,7 +187,6 @@ async def queue_worker():
             else:
                 final_caption = original_caption
 
-            # ارسال به کانال
             if item["type"] == "photo":
                 await bot.send_photo(chat_id=CHANNEL_ID, photo=item["file_id"], caption=final_caption)
             elif item["type"] == "video":
@@ -182,23 +194,21 @@ async def queue_worker():
             else:
                 await bot.send_document(chat_id=CHANNEL_ID, document=item["file_id"], caption=final_caption)
 
-            # حذف پیام اصلی کاربر
             try:
                 await bot.delete_message(chat_id=item["chat_id"], message_id=item["message_id"])
-            except Exception as del_err:
-                logging.warning(f"نتوانست پیام را حذف کند: {del_err}")
+            except Exception as e:
+                logging.warning(f"نتوانست پیام را حذف کند: {e}")
 
             media_queue.task_done()
             await asyncio.sleep(interval_seconds)
 
         except Exception as e:
-            logging.error(f"خطا در پردازش صف: {e}")
+            logging.error(f"خطا در worker: {e}")
             await asyncio.sleep(5)
 
-# ==================== اجرای ربات ====================
 async def main():
     asyncio.create_task(queue_worker())
-    logging.info("ربات در حال راه‌اندازی...")
+    logging.info("ربات با حالت دیباگ شروع شد...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

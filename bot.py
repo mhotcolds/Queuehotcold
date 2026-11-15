@@ -8,8 +8,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 # ==================== تنظیمات ====================
-BOT_TOKEN = "TOKEN_BOT_خود_را_اینجا_قرار_دهید"
-CHANNEL_ID = "@آیدی_کانال_شما_یا_شناسه_عددی"
+BOT_TOKEN ="8971917249:AAHdb_9RzkbkbZlPelsbjlb2CSXkRzhESUM"
+CHANNEL_ID = "-1004331075101"
 
 logging.basicConfig(
     level=logging.INFO,

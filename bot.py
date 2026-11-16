@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from aiogram.enums import ChatMemberStatus
 
 # ==================== تنظیمات ====================
-BOT_TOKEN = "8879159717:AAHuiijKTqEKNGaJ-VlFF1ODTqfUCuabsj8"
+BOT_TOKEN = "8971917249:AAGhpfWlnhQ9OYWkvSS9Qmd4AUBiVBrjk84"
 
 logging.basicConfig(
     level=logging.INFO,

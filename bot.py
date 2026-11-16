@@ -10,14 +10,9 @@ from aiogram.enums import ChatMemberStatus
 
 # ==================== تنظیمات ====================
 BOT_TOKEN = "8971917249:AAGhpfWlnhQ9OYWkvSS9Qmd4AUBiVBrjk84"
+ADMIN_IDS = [6405899841]  # آیدی عددی خودت
 
-# آیدی عددی خودت را اینجا بگذار
-ADMIN_IDS = [6405899841]
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -31,25 +26,34 @@ class AdminStates(StatesGroup):
     waiting_for_prefix = State()
     waiting_for_interval = State()
 
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
 def get_control_keyboard():
     keyboard = [
         [
-            InlineKeyboardButton(text="⚙️ تنظیم پیشوند کپشن", callback_data="set_prefix"),
-            InlineKeyboardButton(text="⏱️ تنظیم فاصله زمانی", callback_data="set_interval")
+            InlineKeyboardButton(text="⚙️ تنظیم پیشوند", callback_data="set_prefix"),
+            InlineKeyboardButton(text="⏱️ تنظیم فاصله", callback_data="set_interval")
         ],
         [
             InlineKeyboardButton(text="📊 وضعیت صف", callback_data="queue_status"),
-            InlineKeyboardButton(text="🗑️ پاک کردن کل صف", callback_data="clear_queue")
+            InlineKeyboardButton(text="🗑️ پاک کردن صف", callback_data="clear_queue")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
+def get_preview_keyboard(item_id: str):
+    keyboard = [
+        [
+            InlineKeyboardButton(text="🗑 حذف", callback_data=f"delete:{item_id}"),
+            InlineKeyboardButton(text="🚀 ارسال فوری", callback_data=f"post_now:{item_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 async def set_bot_commands():
     commands = [
-        BotCommand(command="start", description="شروع ربات و نمایش پنل"),
+        BotCommand(command="start", description="شروع و پنل"),
         BotCommand(command="panel", description="پنل کنترل"),
         BotCommand(command="status", description="وضعیت صف"),
         BotCommand(command="help", description="راهنما"),
@@ -64,41 +68,31 @@ async def on_bot_status_changed(event: ChatMemberUpdated):
     if event.chat.type != "channel":
         return
 
-    new_status = event.new_chat_member.status
-
-    if new_status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR}:
+    if event.new_chat_member.status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR}:
         target_channel_id = event.chat.id
-        logging.info(f"کانال مقصد تنظیم شد → {target_channel_id} | {event.chat.title}")
-
+        logging.info(f"کانال تنظیم شد: {target_channel_id}")
         try:
-            await bot.send_message(
-                chat_id=event.from_user.id,
-                text=f"✅ ربات در کانال **{event.chat.title}** ادمین شد.",
-                parse_mode="Markdown"
-            )
-        except Exception:
+            await bot.send_message(event.from_user.id, f"✅ ربات در کانال **{event.chat.title}** ادمین شد.", parse_mode="Markdown")
+        except:
             pass
-
-    elif new_status in {ChatMemberStatus.LEFT, ChatMemberStatus.KICKED}:
+    elif event.new_chat_member.status in {ChatMemberStatus.LEFT, ChatMemberStatus.KICKED}:
         if target_channel_id == event.chat.id:
             target_channel_id = None
-            logging.info("ربات از کانال حذف شد.")
 
 # ==================== دستورات ====================
-@dp.message(Command("start", "panel", "setting"))
+@dp.message(Command("start", "panel"))
 async def cmd_start(message: types.Message):
     if not is_admin(message.from_user.id):
-        await message.answer("⛔ شما اجازه استفاده از این ربات را ندارید.")
+        await message.answer("⛔ دسترسی ندارید.")
         return
 
-    channel_text = f"`{target_channel_id}`" if target_channel_id else "هنوز تنظیم نشده"
-
+    channel_text = f"`{target_channel_id}`" if target_channel_id else "تنظیم نشده"
     text = (
-        f"🤖 **پنل مدیریت صف ارسال**\n\n"
-        f"• پیشوند فعلی: `{current_prefix if current_prefix else 'تنظیم نشده'}`\n"
+        f"🤖 **پنل مدیریت صف**\n\n"
+        f"• پیشوند: `{current_prefix or 'تنظیم نشده'}`\n"
         f"• فاصله زمانی: `{interval_seconds} ثانیه`\n"
-        f"• کانال مقصد: {channel_text}\n"
-        f"• تعداد فایل در صف: `{media_queue.qsize()}`"
+        f"• کانال: {channel_text}\n"
+        f"• تعداد در صف: `{media_queue.qsize()}`"
     )
     await message.answer(text, reply_markup=get_control_keyboard(), parse_mode="Markdown")
 
@@ -106,78 +100,53 @@ async def cmd_start(message: types.Message):
 async def cmd_status(message: types.Message):
     if not is_admin(message.from_user.id):
         return
-
     channel_text = f"`{target_channel_id}`" if target_channel_id else "تنظیم نشده"
-    await message.answer(
-        f"📊 **وضعیت:**\n\n"
-        f"• فایل در صف: `{media_queue.qsize()}`\n"
-        f"• فاصله زمانی: `{interval_seconds}` ثانیه\n"
-        f"• کانال: {channel_text}",
-        parse_mode="Markdown"
-    )
+    await message.answer(f"📊 فایل در صف: `{media_queue.qsize()}`\nکانال: {channel_text}", parse_mode="Markdown")
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
     if not is_admin(message.from_user.id):
         return
-    await message.answer(
-        "📖 ربات را ادمین کانال کنید، سپس فایل یا متن ارسال کنید.\n"
-        "از دکمه‌های پنل برای تنظیمات استفاده کنید."
-    )
+    await message.answer("فایل یا متن بفرستید. ربات آن را پیش‌نمایش می‌کند و دکمه‌های حذف / ارسال فوری می‌گذارد.")
 
-# ==================== دکمه‌ها ====================
+# ==================== دکمه‌های پنل ====================
 @dp.callback_query(F.data.in_(["set_prefix", "set_interval", "queue_status", "clear_queue"]))
-async def handle_callbacks(callback: types.CallbackQuery, state: FSMContext):
+async def handle_panel_callbacks(callback: types.CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔ دسترسی ندارید", show_alert=True)
         return
 
-    action = callback.data
-
-    if action == "set_prefix":
-        await callback.message.answer("پیشوند جدید را ارسال کنید:")
+    if callback.data == "set_prefix":
+        await callback.message.answer("پیشوند جدید را بفرستید:")
         await state.set_state(AdminStates.waiting_for_prefix)
-        await callback.answer()
-
-    elif action == "set_interval":
-        await callback.message.answer("فاصله زمانی را به ثانیه وارد کنید (حداقل ۱۰):")
+    elif callback.data == "set_interval":
+        await callback.message.answer("فاصله زمانی (ثانیه - حداقل ۱۰):")
         await state.set_state(AdminStates.waiting_for_interval)
-        await callback.answer()
-
-    elif action == "queue_status":
-        await callback.answer(f"تعداد فایل در صف: {media_queue.qsize()}", show_alert=True)
-
-    elif action == "clear_queue":
+    elif callback.data == "queue_status":
+        await callback.answer(f"تعداد در صف: {media_queue.qsize()}", show_alert=True)
+    elif callback.data == "clear_queue":
         while not media_queue.empty():
             try:
                 media_queue.get_nowait()
                 media_queue.task_done()
-            except asyncio.QueueEmpty:
+            except:
                 break
         await callback.message.answer("🗑️ صف پاک شد.", reply_markup=get_control_keyboard())
-        await callback.answer()
+    await callback.answer()
 
-# ==================== ذخیره پیشوند ====================
 @dp.message(AdminStates.waiting_for_prefix)
 async def save_prefix(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
-
     global current_prefix
     current_prefix = message.text.strip()
     await state.clear()
-    await message.answer(
-        f"✅ پیشوند ثبت شد:\n`{current_prefix}`",
-        reply_markup=get_control_keyboard(),
-        parse_mode="Markdown"
-    )
+    await message.answer(f"✅ پیشوند ثبت شد:\n`{current_prefix}`", reply_markup=get_control_keyboard(), parse_mode="Markdown")
 
-# ==================== ذخیره فاصله زمانی ====================
 @dp.message(AdminStates.waiting_for_interval)
 async def save_interval(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
-
     global interval_seconds
     try:
         val = int(message.text.strip())
@@ -186,94 +155,137 @@ async def save_interval(message: types.Message, state: FSMContext):
             return
         interval_seconds = val
         await state.clear()
-        await message.answer(
-            f"⏱️ فاصله زمانی: `{interval_seconds} ثانیه`",
-            reply_markup=get_control_keyboard(),
-            parse_mode="Markdown"
-        )
-    except ValueError:
+        await message.answer(f"⏱️ فاصله زمانی: `{interval_seconds} ثانیه`", reply_markup=get_control_keyboard(), parse_mode="Markdown")
+    except:
         await message.answer("❌ فقط عدد وارد کنید.")
 
-# ==================== دریافت فایل‌ها و متن ====================
+# ==================== دریافت فایل و متن + پیش‌نمایش ====================
 @dp.message(F.content_type.in_({"photo", "video", "document", "animation", "audio", "voice", "video_note", "text"}))
-async def handle_media_and_text(message: types.Message):
+async def handle_content(message: types.Message):
     if not is_admin(message.from_user.id):
-        await message.answer("⛔ شما اجازه استفاده از این ربات را ندارید.")
+        await message.answer("⛔ دسترسی ندارید.")
         return
 
     if target_channel_id is None:
         await message.reply("❌ ابتدا ربات را ادمین کانال کنید.")
         return
 
-    # اگر پیام متنی بود
+    if message.content_type == "text" and message.text.startswith("/"):
+        return
+
+    # پاک کردن پیام اصلی کاربر
+    try:
+        await message.delete()
+    except:
+        pass
+
+    item_id = str(message.message_id)
+    prefix = current_prefix
+
+    # ساخت پیش‌نمایش و ارسال مجدد
     if message.content_type == "text":
-        # نادیده گرفتن دستورات
-        if message.text.startswith("/"):
-            return
-
-        confirm_msg = await message.reply(
-            f"✅ متن به صف اضافه شد\n"
-            f"پیشوند: `{current_prefix if current_prefix else 'ندارد'}`\n"
-            f"تعداد در صف: `{media_queue.qsize() + 1}`",
-            parse_mode="Markdown"
+        text = message.text
+        final_text = f"{prefix}\n\n{text}" if prefix else text
+        preview = await message.answer(
+            final_text,
+            reply_markup=get_preview_keyboard(item_id)
         )
-
-        await media_queue.put({
+        queue_item = {
             "type": "text",
-            "text": message.text,
-            "prefix": current_prefix,
+            "text": text,
+            "prefix": prefix,
             "chat_id": message.chat.id,
-            "message_id": message.message_id,
-            "confirm_message_id": confirm_msg.message_id
-        })
+            "preview_message_id": preview.message_id,
+            "item_id": item_id
+        }
+    else:
+        file_id = None
+        media_type = "document"
+        caption = message.caption or ""
+
+        if message.photo:
+            file_id = message.photo[-1].file_id
+            media_type = "photo"
+        elif message.video:
+            file_id = message.video.file_id
+            media_type = "video"
+        elif message.document:
+            file_id = message.document.file_id
+            media_type = "document"
+        elif message.animation:
+            file_id = message.animation.file_id
+            media_type = "document"
+        elif message.audio:
+            file_id = message.audio.file_id
+            media_type = "document"
+        elif message.voice:
+            file_id = message.voice.file_id
+            media_type = "document"
+        elif message.video_note:
+            file_id = message.video_note.file_id
+            media_type = "document"
+
+        final_caption = f"{prefix}\n\n{caption}" if prefix and caption else (prefix or caption)
+
+        if media_type == "photo":
+            preview = await message.answer_photo(file_id, caption=final_caption, reply_markup=get_preview_keyboard(item_id))
+        elif media_type == "video":
+            preview = await message.answer_video(file_id, caption=final_caption, reply_markup=get_preview_keyboard(item_id))
+        else:
+            preview = await message.answer_document(file_id, caption=final_caption, reply_markup=get_preview_keyboard(item_id))
+
+        queue_item = {
+            "type": media_type,
+            "file_id": file_id,
+            "caption": caption,
+            "prefix": prefix,
+            "chat_id": message.chat.id,
+            "preview_message_id": preview.message_id,
+            "item_id": item_id
+        }
+
+    await media_queue.put(queue_item)
+
+# ==================== دکمه‌های پیش‌نمایش ====================
+@dp.callback_query(F.data.startswith("delete:"))
+async def delete_preview(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ دسترسی ندارید", show_alert=True)
         return
 
-    # اگر فایل بود
-    file_id = None
-    media_type = "document"
+    try:
+        await callback.message.delete()
+        await callback.answer("حذف شد")
+    except:
+        await callback.answer("خطا در حذف", show_alert=True)
 
-    if message.photo:
-        file_id = message.photo[-1].file_id
-        media_type = "photo"
-    elif message.video:
-        file_id = message.video.file_id
-        media_type = "video"
-    elif message.document:
-        file_id = message.document.file_id
-        media_type = "document"
-    elif message.animation:
-        file_id = message.animation.file_id
-        media_type = "document"
-    elif message.audio:
-        file_id = message.audio.file_id
-        media_type = "document"
-    elif message.voice:
-        file_id = message.voice.file_id
-        media_type = "document"
-    elif message.video_note:
-        file_id = message.video_note.file_id
-        media_type = "document"
-
-    if not file_id:
-        await message.reply("❌ فایل شناسایی نشد.")
+@dp.callback_query(F.data.startswith("post_now:"))
+async def post_now(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ دسترسی ندارید", show_alert=True)
         return
 
-    confirm_msg = await message.reply(
-        f"✅ به صف اضافه شد\n"
-        f"پیشوند: `{current_prefix if current_prefix else 'ندارد'}`\n"
-        f"تعداد در صف: `{media_queue.qsize() + 1}`",
-        parse_mode="Markdown"
-    )
+    if target_channel_id is None:
+        await callback.answer("کانال تنظیم نشده", show_alert=True)
+        return
 
-    await media_queue.put({
-        "type": media_type,
-        "file_id": file_id,
-        "caption": message.caption or "",
-        "prefix": current_prefix,
-        "chat_id": message.chat.id,
-        "message_id": message.message_id,
-        "confirm_message_id": confirm_msg.message_id
-    })
+    # پیدا کردن آیتم در صف (ساده شده - در نسخه پیشرفته‌تر می‌توان دیکشنری جدا نگه داشت)
+    await callback.answer("در حال ارسال...")
+    # برای سادگی، پیام فعلی را مستقیم ارسال می‌کنیم
+    try:
+        if callback.message.photo:
+            await bot.send_photo(target_channel_id, callback.message.photo[-1].file_id, caption=callback.message.caption)
+        elif callback.message.video:
+            await bot.send_video(target_channel_id, callback.message.video.file_id, caption=callback.message.caption)
+        elif callback.message.document:
+            await bot.send_document(target_channel_id, callback.message.document.file_id, caption=callback.message.caption)
+        elif callback.message.text:
+            await bot.send_message(target_channel_id, callback.message.text)
+        
+        await callback.message.delete()
+        await callback.answer("ارسال شد ✅")
+    except Exception as e:
+        await callback.answer(f"خطا: {e}", show_alert=True)
 
 # ==================== Worker ====================
 async def queue_worker():
@@ -290,20 +302,13 @@ async def queue_worker():
             prefix = item.get("prefix", "")
             item_type = item["type"]
 
-            # اگر متن بود
             if item_type == "text":
                 text = item.get("text", "")
-                final_text = f"{prefix}\n\n{text}" if prefix and text else (prefix or text)
+                final_text = f"{prefix}\n\n{text}" if prefix else text
                 await bot.send_message(target_channel_id, final_text)
             else:
-                # اگر فایل بود
                 caption = item.get("caption", "")
-                if prefix and caption:
-                    final_caption = f"{prefix}\n\n{caption}"
-                elif prefix:
-                    final_caption = prefix
-                else:
-                    final_caption = caption
+                final_caption = f"{prefix}\n\n{caption}" if prefix and caption else (prefix or caption)
 
                 if item_type == "photo":
                     await bot.send_photo(target_channel_id, item["file_id"], caption=final_caption)
@@ -312,22 +317,17 @@ async def queue_worker():
                 else:
                     await bot.send_document(target_channel_id, item["file_id"], caption=final_caption)
 
-            # پاک کردن پیام‌ها
+            # پاک کردن پیام پیش‌نمایش
             try:
-                await bot.delete_message(item["chat_id"], item["message_id"])
-            except Exception:
-                pass
-
-            try:
-                await bot.delete_message(item["chat_id"], item["confirm_message_id"])
-            except Exception:
+                await bot.delete_message(item["chat_id"], item["preview_message_id"])
+            except:
                 pass
 
             media_queue.task_done()
             await asyncio.sleep(interval_seconds)
 
         except Exception as e:
-            logging.error(f"خطا: {e}")
+            logging.error(f"خطا در worker: {e}")
             await asyncio.sleep(5)
 
 async def main():

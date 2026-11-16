@@ -11,6 +11,9 @@ from aiogram.enums import ChatMemberStatus
 # ==================== تنظیمات ====================
 BOT_TOKEN = "8971917249:AAGhpfWlnhQ9OYWkvSS9Qmd4AUBiVBrjk84"
 
+# آیدی عددی خودت را اینجا بگذار (می‌تونی چند تا هم اضافه کنی)
+ADMIN_IDS = [6405899841]
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
@@ -19,18 +22,15 @@ logging.basicConfig(
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# متغیرهای سراسری
 media_queue = asyncio.Queue()
 current_prefix = ""
 interval_seconds = 60
 target_channel_id = None
 
-# ==================== FSM ====================
 class AdminStates(StatesGroup):
     waiting_for_prefix = State()
     waiting_for_interval = State()
 
-# ==================== کیبورد ====================
 def get_control_keyboard():
     keyboard = [
         [
@@ -44,12 +44,13 @@ def get_control_keyboard():
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-# ==================== تنظیم منوی دستورات ====================
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
 async def set_bot_commands():
     commands = [
         BotCommand(command="start", description="شروع ربات و نمایش پنل"),
         BotCommand(command="panel", description="پنل کنترل"),
-        BotCommand(command="setting", description="تنظیمات"),
         BotCommand(command="status", description="وضعیت صف"),
         BotCommand(command="help", description="راهنما"),
     ]
@@ -60,7 +61,6 @@ async def set_bot_commands():
 async def on_bot_status_changed(event: ChatMemberUpdated):
     global target_channel_id
 
-    # فقط کانال‌ها را در نظر بگیر
     if event.chat.type != "channel":
         return
 
@@ -70,14 +70,10 @@ async def on_bot_status_changed(event: ChatMemberUpdated):
         target_channel_id = event.chat.id
         logging.info(f"کانال مقصد تنظیم شد → {target_channel_id} | {event.chat.title}")
 
-        # سعی می‌کنیم به کسی که ربات را ادمین کرده پیام بدهیم
         try:
             await bot.send_message(
                 chat_id=event.from_user.id,
-                text=(
-                    f"✅ ربات با موفقیت در کانال **{event.chat.title}** ادمین شد.\n\n"
-                    f"از این به بعد فایل‌ها به این کانال ارسال می‌شوند."
-                ),
+                text=f"✅ ربات در کانال **{event.chat.title}** ادمین شد.",
                 parse_mode="Markdown"
             )
         except Exception:
@@ -86,16 +82,19 @@ async def on_bot_status_changed(event: ChatMemberUpdated):
     elif new_status in {ChatMemberStatus.LEFT, ChatMemberStatus.KICKED}:
         if target_channel_id == event.chat.id:
             target_channel_id = None
-            logging.info("ربات از کانال حذف شد. کانال مقصد پاک شد.")
+            logging.info("ربات از کانال حذف شد.")
 
 # ==================== دستورات ====================
 @dp.message(Command("start", "panel", "setting"))
 async def cmd_start(message: types.Message):
-    channel_text = f"`{target_channel_id}`" if target_channel_id else "هنوز تنظیم نشده (ربات را ادمین کانال کنید)"
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ شما اجازه استفاده از این ربات را ندارید.")
+        return
+
+    channel_text = f"`{target_channel_id}`" if target_channel_id else "هنوز تنظیم نشده"
 
     text = (
-        f"🤖 **به ربات مدیریت صف ارسال خوش آمدید!**\n\n"
-        f"• هر نوع فایل، عکس، ویدیو یا سند را بفرستید تا به صف اضافه شود.\n"
+        f"🤖 **پنل مدیریت صف ارسال**\n\n"
         f"• پیشوند فعلی: `{current_prefix if current_prefix else 'تنظیم نشده'}`\n"
         f"• فاصله زمانی: `{interval_seconds} ثانیه`\n"
         f"• کانال مقصد: {channel_text}\n"
@@ -105,41 +104,43 @@ async def cmd_start(message: types.Message):
 
 @dp.message(Command("status"))
 async def cmd_status(message: types.Message):
+    if not is_admin(message.from_user.id):
+        return
+
     channel_text = f"`{target_channel_id}`" if target_channel_id else "تنظیم نشده"
     await message.answer(
-        f"📊 **وضعیت فعلی:**\n\n"
-        f"• فایل‌های در صف: `{media_queue.qsize()}`\n"
+        f"📊 **وضعیت:**\n\n"
+        f"• فایل در صف: `{media_queue.qsize()}`\n"
         f"• فاصله زمانی: `{interval_seconds}` ثانیه\n"
-        f"• کانال مقصد: {channel_text}",
+        f"• کانال: {channel_text}",
         parse_mode="Markdown"
     )
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
-    text = (
-        "📖 **راهنما:**\n\n"
-        "۱. ربات را به کانال خود اضافه کنید و آن را **ادمین** کنید.\n"
-        "۲. فایل‌ها را برای ربات بفرستید تا وارد صف شوند.\n"
-        "۳. از دکمه‌های پنل برای تنظیم پیشوند و زمان استفاده کنید.\n\n"
-        "**دستورات:**\n"
-        "/start - نمایش پنل\n"
-        "/status - وضعیت صف و کانال\n"
-        "/help - راهنما"
+    if not is_admin(message.from_user.id):
+        return
+    await message.answer(
+        "📖 ربات را ادمین کانال کنید، سپس فایل‌ها را ارسال کنید.\n"
+        "از دکمه‌های پنل برای تنظیمات استفاده کنید."
     )
-    await message.answer(text)
 
 # ==================== دکمه‌ها ====================
 @dp.callback_query(F.data.in_(["set_prefix", "set_interval", "queue_status", "clear_queue"]))
 async def handle_callbacks(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ دسترسی ندارید", show_alert=True)
+        return
+
     action = callback.data
 
     if action == "set_prefix":
-        await callback.message.answer("لطفاً پیشوند مورد نظر را ارسال کنید:")
+        await callback.message.answer("پیشوند جدید را ارسال کنید:")
         await state.set_state(AdminStates.waiting_for_prefix)
         await callback.answer()
 
     elif action == "set_interval":
-        await callback.message.answer("⏱️ فاصله زمانی را به **ثانیه** وارد کنید (حداقل ۱۰):")
+        await callback.message.answer("فاصله زمانی را به ثانیه وارد کنید (حداقل ۱۰):")
         await state.set_state(AdminStates.waiting_for_interval)
         await callback.answer()
 
@@ -153,48 +154,47 @@ async def handle_callbacks(callback: types.CallbackQuery, state: FSMContext):
                 media_queue.task_done()
             except asyncio.QueueEmpty:
                 break
-        await callback.message.answer("🗑️ صف کاملاً پاک شد.", reply_markup=get_control_keyboard())
+        await callback.message.answer("🗑️ صف پاک شد.", reply_markup=get_control_keyboard())
         await callback.answer()
 
 # ==================== ذخیره پیشوند ====================
 @dp.message(AdminStates.waiting_for_prefix)
 async def save_prefix(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+
     global current_prefix
     current_prefix = message.text.strip()
     await state.clear()
-    await message.answer(
-        f"✅ پیشوند ثبت شد:\n`{current_prefix}`",
-        reply_markup=get_control_keyboard(),
-        parse_mode="Markdown"
-    )
+    await message.answer(f"✅ پیشوند ثبت شد:\n`{current_prefix}`", reply_markup=get_control_keyboard(), parse_mode="Markdown")
 
 # ==================== ذخیره فاصله زمانی ====================
 @dp.message(AdminStates.waiting_for_interval)
 async def save_interval(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+
     global interval_seconds
     try:
         val = int(message.text.strip())
         if val < 10:
-            await message.answer("❌ حداقل ۱۰ ثانیه مجاز است. دوباره وارد کنید:")
+            await message.answer("❌ حداقل ۱۰ ثانیه.")
             return
         interval_seconds = val
         await state.clear()
-        await message.answer(
-            f"⏱️ فاصله زمانی تنظیم شد: `{interval_seconds} ثانیه`",
-            reply_markup=get_control_keyboard(),
-            parse_mode="Markdown"
-        )
+        await message.answer(f"⏱️ فاصله زمانی: `{interval_seconds} ثانیه`", reply_markup=get_control_keyboard(), parse_mode="Markdown")
     except ValueError:
-        await message.answer("❌ فقط عدد وارد کنید:")
+        await message.answer("❌ فقط عدد وارد کنید.")
 
 # ==================== دریافت فایل‌ها ====================
 @dp.message(F.content_type.in_({"photo", "video", "document", "animation", "audio", "voice", "video_note"}))
 async def handle_media(message: types.Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ شما اجازه استفاده از این ربات را ندارید.")
+        return
+
     if target_channel_id is None:
-        await message.reply(
-            "❌ کانال مقصد هنوز تنظیم نشده.\n\n"
-            "لطفاً ربات را به کانال اضافه کنید و آن را **ادمین** کنید."
-        )
+        await message.reply("❌ ابتدا ربات را ادمین کانال کنید.")
         return
 
     file_id = None
@@ -234,11 +234,7 @@ async def handle_media(message: types.Message):
         "message_id": message.message_id
     })
 
-    await message.reply(
-        f"✅ به صف اضافه شد\n"
-        f"نوع: `{media_type}` | تعداد در صف: `{media_queue.qsize()}`",
-        parse_mode="Markdown"
-    )
+    await message.reply(f"✅ به صف اضافه شد | تعداد: `{media_queue.qsize()}`", parse_mode="Markdown")
 
 # ==================== Worker ====================
 async def queue_worker():
@@ -253,10 +249,7 @@ async def queue_worker():
                 continue
 
             caption = item["caption"]
-            if current_prefix:
-                final_caption = f"{current_prefix}\n\n{caption}" if caption else current_prefix
-            else:
-                final_caption = caption
+            final_caption = f"{current_prefix}\n\n{caption}" if current_prefix and caption else (current_prefix or caption)
 
             if item["type"] == "photo":
                 await bot.send_photo(target_channel_id, item["file_id"], caption=final_caption)
@@ -265,7 +258,6 @@ async def queue_worker():
             else:
                 await bot.send_document(target_channel_id, item["file_id"], caption=final_caption)
 
-            # حذف پیام کاربر
             try:
                 await bot.delete_message(item["chat_id"], item["message_id"])
             except Exception:
@@ -275,14 +267,13 @@ async def queue_worker():
             await asyncio.sleep(interval_seconds)
 
         except Exception as e:
-            logging.error(f"خطا در ارسال: {e}")
+            logging.error(f"خطا: {e}")
             await asyncio.sleep(5)
 
-# ==================== شروع ====================
 async def main():
     await set_bot_commands()
     asyncio.create_task(queue_worker())
-    logging.info("ربات آماده است...")
+    logging.info("ربات خصوصی آماده است...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from aiogram.enums import ChatMemberStatus
 # ==================== تنظیمات ====================
 BOT_TOKEN = "8971917249:AAGhpfWlnhQ9OYWkvSS9Qmd4AUBiVBrjk84"
 
-# آیدی عددی خودت را اینجا بگذار (می‌تونی چند تا هم اضافه کنی)
+# آیدی عددی خودت را اینجا بگذار
 ADMIN_IDS = [6405899841]
 
 logging.basicConfig(
@@ -121,7 +121,7 @@ async def cmd_help(message: types.Message):
     if not is_admin(message.from_user.id):
         return
     await message.answer(
-        "📖 ربات را ادمین کانال کنید، سپس فایل‌ها را ارسال کنید.\n"
+        "📖 ربات را ادمین کانال کنید، سپس فایل یا متن ارسال کنید.\n"
         "از دکمه‌های پنل برای تنظیمات استفاده کنید."
     )
 
@@ -166,7 +166,11 @@ async def save_prefix(message: types.Message, state: FSMContext):
     global current_prefix
     current_prefix = message.text.strip()
     await state.clear()
-    await message.answer(f"✅ پیشوند ثبت شد:\n`{current_prefix}`", reply_markup=get_control_keyboard(), parse_mode="Markdown")
+    await message.answer(
+        f"✅ پیشوند ثبت شد:\n`{current_prefix}`",
+        reply_markup=get_control_keyboard(),
+        parse_mode="Markdown"
+    )
 
 # ==================== ذخیره فاصله زمانی ====================
 @dp.message(AdminStates.waiting_for_interval)
@@ -182,13 +186,17 @@ async def save_interval(message: types.Message, state: FSMContext):
             return
         interval_seconds = val
         await state.clear()
-        await message.answer(f"⏱️ فاصله زمانی: `{interval_seconds} ثانیه`", reply_markup=get_control_keyboard(), parse_mode="Markdown")
+        await message.answer(
+            f"⏱️ فاصله زمانی: `{interval_seconds} ثانیه`",
+            reply_markup=get_control_keyboard(),
+            parse_mode="Markdown"
+        )
     except ValueError:
         await message.answer("❌ فقط عدد وارد کنید.")
 
-# ==================== دریافت فایل‌ها ====================
-@dp.message(F.content_type.in_({"photo", "video", "document", "animation", "audio", "voice", "video_note"}))
-async def handle_media(message: types.Message):
+# ==================== دریافت فایل‌ها و متن ====================
+@dp.message(F.content_type.in_({"photo", "video", "document", "animation", "audio", "voice", "video_note", "text"}))
+async def handle_media_and_text(message: types.Message):
     if not is_admin(message.from_user.id):
         await message.answer("⛔ شما اجازه استفاده از این ربات را ندارید.")
         return
@@ -197,6 +205,30 @@ async def handle_media(message: types.Message):
         await message.reply("❌ ابتدا ربات را ادمین کانال کنید.")
         return
 
+    # اگر پیام متنی بود
+    if message.content_type == "text":
+        # نادیده گرفتن دستورات
+        if message.text.startswith("/"):
+            return
+
+        confirm_msg = await message.reply(
+            f"✅ متن به صف اضافه شد\n"
+            f"پیشوند: `{current_prefix if current_prefix else 'ندارد'}`\n"
+            f"تعداد در صف: `{media_queue.qsize() + 1}`",
+            parse_mode="Markdown"
+        )
+
+        await media_queue.put({
+            "type": "text",
+            "text": message.text,
+            "prefix": current_prefix,
+            "chat_id": message.chat.id,
+            "message_id": message.message_id,
+            "confirm_message_id": confirm_msg.message_id
+        })
+        return
+
+    # اگر فایل بود
     file_id = None
     media_type = "document"
 
@@ -226,19 +258,26 @@ async def handle_media(message: types.Message):
         await message.reply("❌ فایل شناسایی نشد.")
         return
 
+    confirm_msg = await message.reply(
+        f"✅ به صف اضافه شد\n"
+        f"پیشوند: `{current_prefix if current_prefix else 'ندارد'}`\n"
+        f"تعداد در صف: `{media_queue.qsize() + 1}`",
+        parse_mode="Markdown"
+    )
+
     await media_queue.put({
         "type": media_type,
         "file_id": file_id,
         "caption": message.caption or "",
+        "prefix": current_prefix,
         "chat_id": message.chat.id,
-        "message_id": message.message_id
+        "message_id": message.message_id,
+        "confirm_message_id": confirm_msg.message_id
     })
-
-    await message.reply(f"✅ به صف اضافه شد | تعداد: `{media_queue.qsize()}`", parse_mode="Markdown")
 
 # ==================== Worker ====================
 async def queue_worker():
-    global interval_seconds, current_prefix, target_channel_id
+    global interval_seconds, target_channel_id
 
     while True:
         try:
@@ -248,18 +287,39 @@ async def queue_worker():
                 media_queue.task_done()
                 continue
 
-            caption = item["caption"]
-            final_caption = f"{current_prefix}\n\n{caption}" if current_prefix and caption else (current_prefix or caption)
+            prefix = item.get("prefix", "")
+            item_type = item["type"]
 
-            if item["type"] == "photo":
-                await bot.send_photo(target_channel_id, item["file_id"], caption=final_caption)
-            elif item["type"] == "video":
-                await bot.send_video(target_channel_id, item["file_id"], caption=final_caption)
+            # اگر متن بود
+            if item_type == "text":
+                text = item.get("text", "")
+                final_text = f"{prefix}\n\n{text}" if prefix and text else (prefix or text)
+                await bot.send_message(target_channel_id, final_text)
             else:
-                await bot.send_document(target_channel_id, item["file_id"], caption=final_caption)
+                # اگر فایل بود
+                caption = item.get("caption", "")
+                if prefix and caption:
+                    final_caption = f"{prefix}\n\n{caption}"
+                elif prefix:
+                    final_caption = prefix
+                else:
+                    final_caption = caption
 
+                if item_type == "photo":
+                    await bot.send_photo(target_channel_id, item["file_id"], caption=final_caption)
+                elif item_type == "video":
+                    await bot.send_video(target_channel_id, item["file_id"], caption=final_caption)
+                else:
+                    await bot.send_document(target_channel_id, item["file_id"], caption=final_caption)
+
+            # پاک کردن پیام‌ها
             try:
                 await bot.delete_message(item["chat_id"], item["message_id"])
+            except Exception:
+                pass
+
+            try:
+                await bot.delete_message(item["chat_id"], item["confirm_message_id"])
             except Exception:
                 pass
 
@@ -273,7 +333,7 @@ async def queue_worker():
 async def main():
     await set_bot_commands()
     asyncio.create_task(queue_worker())
-    logging.info("ربات خصوصی آماده است...")
+    logging.info("ربات آماده است...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
